@@ -19,7 +19,8 @@ from pathlib import Path
 from datetime import datetime, timezone
 import requests
 
-BASE = "https://www.dws.gov.za/Hydrology/Flood%20Peaks/Monthly/{code}PK.CSV"
+BASE_MONTHLY = "https://www.dws.gov.za/Hydrology/Flood%20Peaks/Monthly/{code}PK.CSV"
+BASE_ANNUAL  = "https://www.dws.gov.za/Hydrology/Flood%20Peaks/Annual/{code}YRPK.CSV"
 OUT = Path("data/peaks")
 STATION_LIST = Path("stations_to_harvest.txt")  # one code per line, # for comments
 TIMEOUT = 120
@@ -49,50 +50,66 @@ def looks_valid(text):
     # The real file contains the SAFMAXLEVELFLOW header and a Year,Date,Time line.
     return ("Year,Date,Time" in text) and ("SAFMAXLEVELFLOW" in text or "Monthly Maximum" in text)
 
-def fetch(code):
-    url = BASE.format(code=code)
+def fetch_url(url):
+    """Return text on success, None on 404, False on failure-after-retries."""
     for attempt in range(1, RETRIES + 2):
         try:
             r = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
             if r.status_code == 200 and looks_valid(r.text):
                 return r.text
             if r.status_code == 404:
-                return None  # no peaks file for this station
+                return None
             print(f"  attempt {attempt}: HTTP {r.status_code}"
                   f"{' (unexpected body)' if r.status_code==200 else ''}")
         except requests.RequestException as e:
             print(f"  attempt {attempt}: {type(e).__name__}: {e}")
         time.sleep(PAUSE * attempt)
-    return False  # failed after retries (distinct from 404 -> None)
+    return False
+
+def fetch(code):
+    """Fetch monthly (required) and annual (optional).
+    Returns (monthly_text_or_False_or_None, annual_text_or_None)."""
+    monthly = fetch_url(BASE_MONTHLY.format(code=code))
+    time.sleep(PAUSE)
+    annual = fetch_url(BASE_ANNUAL.format(code=code))
+    if annual is False:  # a failure on annual is non-fatal; treat as absent
+        annual = None
+    return monthly, annual
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     codes = load_stations()
     print(f"Harvesting {len(codes)} stations -> {OUT}/")
-    ok, missing, failed = [], [], []
+    ok, missing, failed, with_annual = [], [], [], []
     for code in codes:
         print(f"- {code}")
-        text = fetch(code)
-        if text is None:
-            print("    no peaks file (404)"); missing.append(code)
-        elif text is False:
+        monthly, annual = fetch(code)
+        if monthly is None:
+            print("    no monthly peaks file (404)"); missing.append(code)
+        elif monthly is False:
             print("    FAILED"); failed.append(code)
         else:
-            (OUT / f"{code}PK.CSV").write_text(text, encoding="utf-8")
-            print(f"    saved {len(text):,} bytes"); ok.append(code)
+            (OUT / f"{code}PK.CSV").write_text(monthly, encoding="utf-8")
+            msg = f"    saved monthly ({len(monthly):,} bytes)"
+            if annual:
+                (OUT / f"{code}YRPK.CSV").write_text(annual, encoding="utf-8")
+                with_annual.append(code)
+                msg += f" + annual ({len(annual):,} bytes)"
+            print(msg); ok.append(code)
         time.sleep(PAUSE)
 
     index = {
         "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "available": sorted(ok),
+        "annual": sorted(with_annual),
         "missing": sorted(missing),
         "failed": sorted(failed),
     }
     (OUT / "index.json").write_text(json.dumps(index, indent=2))
-    print(f"\nDone. ok={len(ok)} missing={len(missing)} failed={len(failed)}")
+    print(f"\nDone. ok={len(ok)} (annual={len(with_annual)}) "
+          f"missing={len(missing)} failed={len(failed)}")
     if failed:
         print("Failed (will retry next run):", ", ".join(failed))
-        # non-zero exit if everything failed — likely an IP block worth noticing
         if not ok:
             sys.exit(2)
 
