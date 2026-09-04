@@ -443,6 +443,18 @@ function buildLegend(){
   $("#flagLegend").innerHTML=order.map(f=>
     `<span><i class="swatch" style="background:${FLAGS[f].c}"></i>${FLAGS[f].name}${f?` (${f})`:''}</span>`).join('');
 }
+function niceMax(raw){
+  if(!(raw>0))return 1;
+  const p=Math.pow(10,Math.floor(Math.log10(raw)));
+  const n=raw/p;                       // 1..10
+  const step=n<=1?1:n<=2?2:n<=2.5?2.5:n<=5?5:10;
+  return step*p;                       // round up to a clean 1/2/2.5/5/10 * 10^k
+}
+function fmtAxis(v,vmax){
+  if(vmax>=100)return Math.round(v).toString();
+  if(vmax>=10)return v.toFixed(v%1===0?0:1);
+  return v.toFixed(2);
+}
 function draw(){
   const isFlow=state.series==='flow';
   const isAnnual=state.res==='annual'&&ANNUAL.length;
@@ -455,10 +467,10 @@ function draw(){
   const key=isFlow?'flow':'level';
   if(state.hideFlagged)rows=rows.map(d=>FLAGGED.has(d.q)?{...d,[key]:null}:d);
   if(!rows.length){$("#flowChart").innerHTML='<div class="empty-note">No data in this range.</div>';return;}
-  const W=Math.max(760,rows.length*(isAnnual?12:2.2)),H=340,m={l:52,r:16,t:14,b:34},iw=W-m.l-m.r,ih=H-m.t-m.b;
+  const W=Math.max(760,rows.length*(isAnnual?12:2.2)),H=340,m={l:64,r:16,t:14,b:34},iw=W-m.l-m.r,ih=H-m.t-m.b;
   const vals=rows.map(d=>d[key]).filter(v=>v!=null);
   if(!vals.length){$("#flowChart").innerHTML='<div class="empty-note">No '+state.series+' data in this range.</div>';return;}
-  const vmax=Math.max(...vals)*1.08,vmin=0;
+  const vmin=0,vmax=niceMax(Math.max(...vals));
   const t0=rows[0].ym,t1=rows[rows.length-1].ym;
   const X=ym=>m.l+(t1===t0?0:(ym-t0)/(t1-t0)*iw),Y=v=>m.t+ih-(v-vmin)/(vmax-vmin)*ih;
   const gl=[];for(let i=0;i<=4;i++)gl.push(vmin+(vmax-vmin)*i/4);
@@ -469,7 +481,7 @@ function draw(){
     path+=(pen?"L":"M")+X(d.ym).toFixed(1)+" "+Y(v).toFixed(1)+" ";pen=true;});
   let svg=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img">`;
   gl.forEach(v=>{svg+=`<line class="gridline" x1="${m.l}" x2="${W-m.r}" y1="${Y(v)}" y2="${Y(v)}"/>`
-    +`<text class="axis" x="${m.l-8}" y="${Y(v)+3}" text-anchor="end">${v.toFixed(2)}</text>`;});
+    +`<text class="axis" x="${m.l-8}" y="${Y(v)+3}" text-anchor="end">${fmtAxis(v,vmax)}</text>`;});
   yrTicks.forEach(y=>{const d=rows.find(r=>r.y===y);if(!d)return;
     svg+=`<text class="axis" x="${X(d.ym)}" y="${H-14}" text-anchor="middle">${y}</text>`;});
   svg+=`<path class="flowline" d="${path}"/>`;
