@@ -53,13 +53,14 @@
   .leaflet-popup-content{font-family:"Iowan Old Style",Georgia,serif;margin:12px 14px}
   .pop-code{font-family:ui-monospace,Menlo,monospace;font-weight:700;font-size:15px;color:var(--spring-dk)}
   .pop-name{font-size:13px;color:var(--ink);margin:3px 0 10px;max-width:230px}
-  .pop-btn{display:inline-block;background:var(--spring);color:#fff;text-decoration:none;
+  .pop-btn,a.pop-btn,button.pop-btn{display:inline-block;background:var(--spring);color:#fff !important;text-decoration:none;
+    border:none;font-family:inherit;font-size:13px;cursor:pointer;-webkit-appearance:none;appearance:none;
     font-size:13px;padding:6px 12px;border-radius:2px;font-family:ui-monospace,Menlo,monospace}
   .pop-btn:hover{background:var(--spring-dk)}
   .pop-hint{font-size:11.5px;color:var(--mute);margin-top:8px;max-width:230px}
 
   /* Intake */
-  .intake{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .intake{display:block}
   @media(max-width:720px){.intake{grid-template-columns:1fr}#map{height:340px}}
   .drop{border:1.5px dashed var(--spring);border-radius:2px;background:var(--panel);
     padding:18px 20px;transition:background .15s,border-color .15s}
@@ -95,7 +96,6 @@
   .axis text{font-size:10.5px;fill:var(--mute)}
   .gridline{stroke:var(--line);stroke-dasharray:2 3}
   .flowline{fill:none;stroke:var(--spring);stroke-width:1.4}
-  .volbar{fill:var(--silt);opacity:.85}.volbar:hover{opacity:1}
   .dot{cursor:pointer}
   .empty-note{color:var(--mute);font-size:14px;padding:30px 0;text-align:center;
     border:1px dashed var(--line);border-radius:2px}
@@ -113,7 +113,7 @@
   <div class="hero-inner">
     <div class="station-id">DWS HYDROLOGY · STATION EXPLORER</div>
     <h1>Flow &amp; Volume Dashboard</h1>
-    <p class="sub">Pick a gauging station on the map, download its verified record from DWS, then drop the CSV back here to chart monthly flow and level. Add your abstracted monthly volumes alongside.</p>
+    <p class="sub">Pick a gauging station on the map, load its verified peak record from DWS, and chart monthly and annual maximum flow and level.</p>
   </div>
 </header>
 
@@ -140,13 +140,6 @@
       <input type="file" id="fileFlow" accept=".csv,.txt">
       <div class="status" id="statFlow"></div>
     </div>
-    <div class="drop manual" id="dropVol">
-      <h3>Monthly volume CSV <span style="font-weight:400;color:var(--silt)">(manual)</span></h3>
-      <p class="hint">Volumes aren't machine-retrievable from DWS. Columns: <code>Year,Month,Volume_m3</code>.</p>
-      <input type="file" id="fileVol" accept=".csv,.txt">
-      <div class="status" id="statVol"></div>
-      <div class="tmpl"><a id="tmplLink">Download a blank template</a></div>
-    </div>
   </section>
 
   <div class="controls" id="controls" style="display:none">
@@ -172,12 +165,6 @@
     <p class="cap" id="flowCap">Cumec (m3/s). Points coloured by DWS quality code.</p>
     <div class="chart-scroll"><div id="flowChart"></div></div>
     <div class="legend" id="flagLegend"></div>
-  </section>
-
-  <section class="panel" id="panelVol">
-    <h2>Monthly abstracted volume</h2>
-    <p class="cap">Cubic metres (m3), from your uploaded volume file.</p>
-    <div id="volChart"><div class="empty-note">Upload a monthly volume CSV to populate this panel.</div></div>
   </section>
 
   <footer>
@@ -333,12 +320,12 @@ $("#search").addEventListener('keydown',e=>{
     const mk=byCode[c];cluster.zoomToShowLayer(mk,()=>mk.openPopup());}
 });
 
-/* ---------------- FLOW / VOLUME (verified parsers) ---------------- */
+/* ---------------- FLOW parsers ---------------- */
 const FLAGS={'$':{name:'Gauge plate',c:'var(--flag-dollar)'},'A':{name:'Above rating',c:'var(--flag-A)'},
   'E':{name:'Estimated',c:'var(--flag-E)'},'M':{name:'Missing',c:'var(--flag-M)'},
   'Q':{name:'Not audited',c:'var(--flag-Q)'},'':{name:'Verified',c:'var(--spring)'}};
 const FLAGGED=new Set(['E','M','A']);
-let FLOW=[],ANNUAL=[],VOL=[];
+let FLOW=[],ANNUAL=[];
 const state={from:null,to:null,series:'flow',res:'monthly',hideFlagged:false};
 
 function parseFlowCSV(text){
@@ -376,21 +363,6 @@ function parseAnnualCSV(text){
   });
   rows.sort((a,b)=>a.y-b.y);return rows;
 }
-function parseVolCSV(text){
-  const lines=text.split(/\r?\n/).filter(l=>l.trim());
-  if(!lines.length)throw new Error("empty file");
-  let start=/year|month|vol/.test(lines[0].toLowerCase())?1:0;
-  const out=[];
-  for(let i=start;i<lines.length;i++){
-    const p=lines[i].split(',').map(s=>s.trim());
-    if(p.length<3)continue;
-    const y=+p[0],m=+p[1],v=+p[2].replace(/[^0-9.\-eE]/g,'');
-    if(!Number.isFinite(y)||!Number.isFinite(m)||m<1||m>12||!Number.isFinite(v))continue;
-    out.push({y,m,vol:v,date:new Date(y,m-1,1)});
-  }
-  if(!out.length)throw new Error("no valid Year,Month,Volume_m3 rows found");
-  out.sort((a,b)=>a.date-b.date);return out;
-}
 function wireDrop(dropSel,inputSel,handler){
   const drop=$(dropSel),inp=$(inputSel);
   inp.addEventListener('change',e=>{if(e.target.files[0])readFile(e.target.files[0],handler);});
@@ -418,13 +390,6 @@ wireDrop('#dropFlow','#fileFlow',(txt,name)=>{
       $("#statFlow").className="status";$("#dropFlow").classList.add('ok');initAfterFlow();
     }
   }catch(err){$("#statFlow").textContent="\u2717 "+err.message;$("#statFlow").className="status warn";}
-});
-wireDrop('#dropVol','#fileVol',(txt,name)=>{
-  try{
-    VOL=parseVolCSV(txt);
-    $("#statVol").textContent=`\u2713 ${name}: ${VOL.length} months (${VOL[0].y}\u2013${VOL[VOL.length-1].y})`;
-    $("#statVol").className="status";$("#dropVol").classList.add('ok');drawVol();
-  }catch(err){$("#statVol").textContent="\u2717 "+err.message;$("#statVol").className="status warn";}
 });
 
 function initAfterFlow(){
@@ -520,36 +485,6 @@ function draw(){
     el.addEventListener('mousemove',e=>showTip(el.getAttribute('data-t'),e.clientX,e.clientY));
     el.addEventListener('mouseleave',hideTip);});
 }
-function drawVol(){
-  const c=$("#volChart");
-  if(!VOL.length){c.innerHTML='<div class="empty-note">Upload a monthly volume CSV to populate this panel.</div>';return;}
-  const W=Math.max(760,VOL.length*10),H=320,m={l:66,r:16,t:14,b:40},iw=W-m.l-m.r,ih=H-m.t-m.b;
-  const vmax=Math.max(...VOL.map(d=>d.vol))*1.08,bw=Math.max(2,iw/VOL.length*0.7);
-  const X=i=>m.l+i/Math.max(1,VOL.length-1)*(iw-bw)+bw/2,Y=v=>m.t+ih-v/vmax*ih;
-  const fmt=v=>v>=1e6?(v/1e6).toFixed(2)+"M":v>=1e3?(v/1e3).toFixed(0)+"k":v.toFixed(0);
-  let svg=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img">`;
-  for(let i=0;i<=4;i++){const v=vmax*i/4;
-    svg+=`<line class="gridline" x1="${m.l}" x2="${W-m.r}" y1="${Y(v)}" y2="${Y(v)}"/>`
-      +`<text class="axis" x="${m.l-8}" y="${Y(v)+3}" text-anchor="end">${fmt(v)}</text>`;}
-  const step=Math.ceil(VOL.length/12);
-  VOL.forEach((d,i)=>{const x=X(i)-bw/2,y=Y(d.vol);
-    svg+=`<rect class="volbar" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${(m.t+ih-y).toFixed(1)}" `
-      +`data-t="${d.y}-${String(d.m).padStart(2,'0')} \u00b7 ${d.vol.toLocaleString()} m3"/>`;
-    if(i%step===0)svg+=`<text class="axis" x="${X(i)}" y="${H-14}" text-anchor="middle">${d.y}-${String(d.m).padStart(2,'0')}</text>`;});
-  svg+=`<text class="axis" transform="rotate(-90)" x="${-(m.t+ih/2)}" y="14" text-anchor="middle">m3</text></svg>`;
-  c.innerHTML=svg;
-  c.querySelectorAll('.volbar').forEach(el=>{
-    el.addEventListener('mousemove',e=>showTip(el.getAttribute('data-t'),e.clientX,e.clientY));
-    el.addEventListener('mouseleave',hideTip);});
-}
-$("#tmplLink").addEventListener('click',()=>{
-  const now=new Date(),rows=["Year,Month,Volume_m3"];
-  for(let i=11;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);
-    rows.push(`${d.getFullYear()},${d.getMonth()+1},`);}
-  const blob=new Blob([rows.join("\n")],{type:"text/csv"});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
-  a.download="monthly_volume_template.csv";a.click();
-});
 </script>
 </body>
 </html>
