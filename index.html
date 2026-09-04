@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DWS Station Explorer — Flow &amp; Volume</title>
+<link rel="stylesheet" href="vendor/lib/leaflet.css"/>
+<link rel="stylesheet" href="vendor/lib/MarkerCluster.css"/>
+<link rel="stylesheet" href="vendor/lib/MarkerCluster.Default.css"/>
+<style>
+  :root{
+    --ink:#12312b;--paper:#f6f4ec;--panel:#ffffff;
+    --spring:#1f8a70;--spring-dk:#136353;--silt:#b98a3c;
+    --flag-M:#c0392b;--flag-E:#d98a1e;--flag-Q:#7a8a99;--flag-A:#8e44ad;--flag-dollar:#2c7fb8;
+    --line:#d9d4c4;--mute:#5c6b64;
+  }
+  *{box-sizing:border-box}html,body{margin:0}
+  body{background:var(--paper);color:var(--ink);
+    font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;line-height:1.5}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 20px 80px}
+  header.hero{padding:34px 20px 22px;border-bottom:2px solid var(--ink);
+    background:linear-gradient(180deg,rgba(31,138,112,.08),transparent 70%)}
+  .hero-inner{max-width:1180px;margin:0 auto}
+  .station-id{font-size:13px;letter-spacing:.16em;color:var(--spring-dk);
+    font-family:ui-monospace,Menlo,monospace;margin-bottom:4px}
+  h1{font-size:clamp(24px,3.4vw,36px);margin:0;font-weight:600;letter-spacing:-.01em}
+  .sub{color:var(--mute);font-size:15px;margin-top:6px;max-width:64ch}
+
+  .step-label{font-family:ui-monospace,Menlo,monospace;font-size:12px;letter-spacing:.12em;
+    color:var(--spring-dk);margin:30px 0 8px;text-transform:uppercase}
+
+  /* Map */
+  #map{height:440px;border:1px solid var(--line);border-radius:2px;z-index:1}
+  .map-tools{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;margin:0 0 10px}
+  #search{font-family:inherit;font-size:14px;padding:7px 11px;border:1px solid var(--line);
+    border-radius:2px;background:var(--panel);color:var(--ink);width:300px;max-width:100%}
+  .count{font-size:13px;color:var(--mute)}
+  .selbox{margin-left:auto;font-size:13px;color:var(--mute)}
+  .selbox b{color:var(--spring-dk);font-family:ui-monospace,Menlo,monospace}
+
+
+  .maplegend{display:flex;gap:16px;align-items:center;font-size:12.5px;color:var(--mute);margin:8px 0 0}
+  .maplegend span{display:inline-flex;gap:6px;align-items:center}
+  .mk-v{width:12px;height:12px;border-radius:50%;background:#1f8a70;border:1px solid #136353;display:inline-block}
+  .mk-u{width:12px;height:12px;border-radius:50%;background:#fff;border:1.5px solid #9aa8a0;display:inline-block}
+  .pop-verify{display:block;margin-top:8px;font-size:12px;color:var(--spring-dk);cursor:pointer;
+    text-decoration:underline;background:none;border:none;padding:0;font-family:inherit}
+  .pop-warn{font-size:11.5px;color:var(--mute);margin-top:8px;max-width:230px;line-height:1.35}
+  .pop-badge{display:inline-block;font-size:10.5px;font-family:ui-monospace,Menlo,monospace;
+    padding:1px 6px;border-radius:2px;margin-top:6px}
+  .pop-badge.v{background:rgba(31,138,112,.14);color:var(--spring-dk)}
+  .pop-badge.u{background:#eee;color:var(--mute)}
+  .leaflet-popup-content{font-family:"Iowan Old Style",Georgia,serif;margin:12px 14px}
+  .pop-code{font-family:ui-monospace,Menlo,monospace;font-weight:700;font-size:15px;color:var(--spring-dk)}
+  .pop-name{font-size:13px;color:var(--ink);margin:3px 0 10px;max-width:230px}
+  .pop-btn{display:inline-block;background:var(--spring);color:#fff;text-decoration:none;
+    font-size:13px;padding:6px 12px;border-radius:2px;font-family:ui-monospace,Menlo,monospace}
+  .pop-btn:hover{background:var(--spring-dk)}
+  .pop-hint{font-size:11.5px;color:var(--mute);margin-top:8px;max-width:230px}
+
+  /* Intake */
+  .intake{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:720px){.intake{grid-template-columns:1fr}#map{height:340px}}
+  .drop{border:1.5px dashed var(--spring);border-radius:2px;background:var(--panel);
+    padding:18px 20px;transition:background .15s,border-color .15s}
+  .drop.ok{border-style:solid;border-color:var(--spring-dk);
+    background:linear-gradient(180deg,rgba(31,138,112,.06),var(--panel))}
+  .drop.dragover{background:rgba(31,138,112,.1)}
+  .drop.manual{border-color:var(--silt)}
+  .drop h3{margin:0 0 4px;font-size:15px}
+  .drop .hint{font-size:13px;color:var(--mute);margin:0 0 12px}
+  input[type=file]{font-family:inherit;font-size:13px;width:100%}
+  .status{font-size:12.5px;margin-top:10px;color:var(--spring-dk);min-height:1.2em}
+  .status.warn{color:var(--flag-M)}
+  .tmpl{font-size:12px;color:var(--mute);margin-top:8px}
+  .tmpl a{color:var(--spring-dk);cursor:pointer;text-decoration:underline}
+  code{background:#00000008;padding:1px 4px;border-radius:2px;font-family:ui-monospace,Menlo,monospace}
+
+  .controls{display:flex;flex-wrap:wrap;gap:14px 22px;align-items:center;margin:22px 0 8px;
+    padding:14px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .controls label{font-size:13px;color:var(--mute);display:flex;gap:7px;align-items:center}
+  select{font-family:inherit;font-size:13px;padding:3px 6px;border:1px solid var(--line);
+    background:var(--panel);border-radius:2px;color:var(--ink)}
+  .toggle{display:flex;gap:4px}
+  .toggle button{font-family:inherit;font-size:12.5px;padding:4px 11px;cursor:pointer;
+    border:1px solid var(--line);background:var(--panel);color:var(--mute);border-radius:2px}
+  .toggle button.on{background:var(--spring);border-color:var(--spring);color:#fff}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:2px;
+    padding:20px 22px 16px;margin-top:24px}
+  .panel h2{margin:0 0 2px;font-size:19px;font-weight:600}
+  .panel .cap{font-size:13px;color:var(--mute);margin:0 0 16px}
+  .chart-scroll{overflow-x:auto}
+  svg{display:block;max-width:100%;height:auto;font-family:ui-monospace,Menlo,monospace}
+  .axis text{font-size:10.5px;fill:var(--mute)}
+  .gridline{stroke:var(--line);stroke-dasharray:2 3}
+  .flowline{fill:none;stroke:var(--spring);stroke-width:1.4}
+  .volbar{fill:var(--silt);opacity:.85}.volbar:hover{opacity:1}
+  .dot{cursor:pointer}
+  .empty-note{color:var(--mute);font-size:14px;padding:30px 0;text-align:center;
+    border:1px dashed var(--line);border-radius:2px}
+  .legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:12px;font-size:12px;color:var(--mute)}
+  .legend span{display:inline-flex;gap:6px;align-items:center}
+  .swatch{width:11px;height:11px;border-radius:50%;display:inline-block}
+  #tip{position:fixed;pointer-events:none;background:var(--ink);color:#fff;
+    font-family:ui-monospace,Menlo,monospace;font-size:11.5px;padding:6px 9px;border-radius:3px;
+    opacity:0;transition:opacity .1s;z-index:2000;max-width:220px;line-height:1.4}
+  footer{margin-top:40px;font-size:12px;color:var(--mute);border-top:1px solid var(--line);padding-top:16px}
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="hero-inner">
+    <div class="station-id">DWS HYDROLOGY · STATION EXPLORER</div>
+    <h1>Flow &amp; Volume Dashboard</h1>
+    <p class="sub">Pick a gauging station on the map, download its verified record from DWS, then drop the CSV back here to chart monthly flow and level. Add your abstracted monthly volumes alongside.</p>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="step-label">Step 1 · Find your station</div>
+  <div class="map-tools">
+    <input id="search" placeholder="Search station code or name (e.g. A2H010, Maloney)…" autocomplete="off">
+    <span class="count" id="count"></span>
+    <span class="selbox" id="selbox"></span>
+  </div>
+  <div id="map"></div>
+  <div class="maplegend">
+    <span><i class="mk-v"></i> Verified working record</span>
+    <span><i class="mk-u"></i> Unverified — may have no flow record</span>
+    <span style="margin-left:auto;font-style:italic">Mark stations verified as you confirm them.</span>
+  </div>
+
+  <div class="step-label">Step 2 · Upload the downloaded data</div>
+  <section class="intake">
+    <div class="drop" id="dropFlow">
+      <h3>DWS peaks/flow CSV</h3>
+      <p class="hint">The file from the DWS portal (e.g. <code>A2H010PK.CSV</code>). Drop here or choose.</p>
+      <input type="file" id="fileFlow" accept=".csv,.txt">
+      <div class="status" id="statFlow"></div>
+    </div>
+    <div class="drop manual" id="dropVol">
+      <h3>Monthly volume CSV <span style="font-weight:400;color:var(--silt)">(manual)</span></h3>
+      <p class="hint">Volumes aren't machine-retrievable from DWS. Columns: <code>Year,Month,Volume_m3</code>.</p>
+      <input type="file" id="fileVol" accept=".csv,.txt">
+      <div class="status" id="statVol"></div>
+      <div class="tmpl"><a id="tmplLink">Download a blank template</a></div>
+    </div>
+  </section>
+
+  <div class="controls" id="controls" style="display:none">
+    <label>From <select id="yrFrom"></select></label>
+    <label>to <select id="yrTo"></select></label>
+    <label>Series
+      <div class="toggle" id="serToggle">
+        <button data-s="flow" class="on">Flow</button>
+        <button data-s="level">Level</button>
+      </div>
+    </label>
+    <label><input type="checkbox" id="hideFlagged"> Hide estimated/missing</label>
+  </div>
+
+  <section class="panel" id="panelFlow" style="display:none">
+    <h2 id="flowTitle">Monthly maximum flow</h2>
+    <p class="cap" id="flowCap">Cumec (m3/s). Points coloured by DWS quality code.</p>
+    <div class="chart-scroll"><div id="flowChart"></div></div>
+    <div class="legend" id="flagLegend"></div>
+  </section>
+
+  <section class="panel" id="panelVol">
+    <h2>Monthly abstracted volume</h2>
+    <p class="cap">Cubic metres (m3), from your uploaded volume file.</p>
+    <div id="volChart"><div class="empty-note">Upload a monthly volume CSV to populate this panel.</div></div>
+  </section>
+
+  <footer>
+    <strong>DWS Station Explorer.</strong> Station locations derived from the DWS RQIS water-monitoring KMZ (357 sites carrying a hydrology gauging code, deduplicated; A2H010 verified). The map is not exhaustive of the full ~3000-station network — swap in the DWS hydrology KML to extend it. Flow/level parsed client-side from the DWS <code>SAFMAXLEVELFLOW</code> monthly-maximum export; nothing is uploaded to a server. Quality codes: <code>$</code> gauge-plate, <code>A</code> above-rating, <code>E</code> estimated, <code>M</code> missing, <code>Q</code> not-audited, blank = verified. Volumes are user-supplied. Map data (c) OpenStreetMap contributors.
+  </footer>
+</div>
+
+<div id="tip"></div>
+
+<script src="vendor/lib/leaflet.js"></script>
+<script src="vendor/lib/leaflet.markercluster.js"></script>
+<script>
+"use strict";
+const STATIONS=[["A1H001","Moilos 37 JO on Dinokana Upper Eye at Dinokana Pump Station (NCWQ)",-25.457,25.85331],["A1H002","Dinokana Lower (A1H002) - WR78",-25.4444,25.8621],["A1H004","Tweefontein Lower (A1H004) - WR59",-25.5441,25.9456],["A2H008","Elandsfontein 412 JR on Elandsfontein Eye",-25.98583,28.33111],["A2H010","Maloneys Eye (A2H010) - WR08",-26.0268,27.5641],["A2H014","Schurveberg 488 JQ at Skurweberg on Hennopsrivier (NCWQ nemp NEMP)",-25.79842,27.98533],["A2H023","Nietgedacht 535 JQ DWJ26 on Jukskeirivier (NCWQ)",-25.95466,27.96217],["A2H024","Brandvlei 261 IQ on Brandvleirivier (NCWQ)",-26.15119,27.59486],["A2H032","Moedwil on Selonsrivier (ncwq)",-25.63753,27.02703],["A2H034","Scheerpoort 477 JO on Skeerpoortrivier (NCWQ)",-25.82483,27.77175],["A2H036","Steenbokfontein 426 JP on Kosterrivier (NCWQ nemp nemp)",-25.72586,26.88444],["A2H038","Rietvalei 314 JO on Waterkloofspruit Lower Site (NCWQ NCMP nemp NEMP)",-25.73411,27.21422],["A2H044","Vlakfontein 494 JQ on Jukskeirivier (NCWQ)",-25.8955,27.93481],["A2H045","Vlakfontein 494 JQ DWJ31 on Crocodile River (NCWQ)",-25.89264,27.91437],["A2H047","Klipfontein/Randburg on Klein-Jukskeirivier (NCWQ)",-26.06818,27.97202],["A2H048","Krokodilpoort 418 JO /Thaba Moya on Krokodilrivier (NCWQ nemp NEMP)",-25.57327,27.75445],["A2H049","Zwartkop 525 JQ on Bloubankspruit / Rietspruit (NCWQ)",-25.97681,27.83644],["A2H051","Van Wyks Restant 182 IQ at Muldersdrift on Krokodilrivier (NCWQ)",-26.03311,27.84269],["A2H053","Buffelsfontein 344 JQ at Grootfontein on Sterkstroom /Gwatlhe (NCWQ)",-25.80928,27.47603],["A2H058","Ifafa 457 JQ at Rietfontein / Syferfontein on Swartspruit (NCWQ)",-25.74819,27.90986],["A2H069","Kleinfontein on Right Canal from Hartbeespoort Dam",-25.50833,27.7625],["A2H096","Lindleyspoort 220 JP on Right Canal from Lindley S Poort Dam (NCWQ nemp NEMP)",-25.4975,26.69036],["A2H100","Roodeplaat Dam on Pienaars River: Left Canal (nemp nemp)",-25.6186,28.3719],["A2H101","Roodeplaat Dam on Pienaars River: Left Canal to Right Bank",-25.6185,28.3721],["A2H102","Roodeplaat Dam on Pienaars River: Down Stream Weir (NCWQ nemp NEMP)",-25.6177,28.3721],["A2H104","Waterkloof 423 JP Down Stream Weir for Koster Dam on Kosterrivier (nemp NEMP)",-25.69847,26.90569],["A2H106","Klipvoor Dam on Pienaars River: Down Stream Weir (NCWQ nemp NEMP)",-25.13111,27.81111],["A2H107","Brakfontein 404 JP Down Stream Weir for Swartruggens Dam on Elandsrivier (nemp nemp)",-25.657,26.69469],["A2H110","Canal from Roodekopjes Dam at Bulhoek (nemp nemp)",-25.31856,27.48947],["A2H111","Vaalkop Dam on Elands River: downstream Weir (NCWQ NCMP nemp NEMP)",-25.30658,27.47622],["A2H113","Roodekopjes Dam on Crocodile River: Left Canal (nemp nemp)",-25.40667,27.57619],["A2H114","Roodekopjes Dam on Crocodile River: Right Canal (nemp)",-25.40278,27.57622],["A2H117","Hartbeesfontein Hartbeespoort (nemp nemp)",-25.72278,27.84778],["A2H122","Roodeplaat Sewage: Settling Pond S Outflow (NEMP NMMP)",-25.615,28.37056],["A2H124","Zeekoegat Sewage Effluent (NEMP NMMP)",-25.6232,28.33874],["A2H125","Baviaanspoort Sewage Effluent (NEMP NMMP)",-25.68861,28.36194],["A2H126","At Franspoort Road Bridge on Edendalspruit (NEMP NMMP)",-25.67778,28.40194],["A2H127","Pienaars River at Baviaanspoort (Magaliesberg) (nemp nmmp)",-25.695,28.35861],["A2H128","A24CROC-Leeuw Faure 72 KQ - Leeuwdrift at Weir on Crocodile River (NCMP)",-24.39619,27.08983],["A2H132","Haakdoorndrift 373 KQ at Paul Hugo Dam on Crocodile River (NCWQ NCMP)",-24.69514,27.40906],["A3H002","Bokkraal no. 1",-25.8225,26.46806],["A3H009","Buffelshoek Oog (A3H009) - WR53",-25.7013,26.0081],["A3H010","Stinkhoutboom Oog Lower (A3H010) - WR54",-25.6506,25.9959],["A3H017","Rhenosterfontein(A3H017) - WR60 (NCWQ)",-25.7211,26.1354],["A3H018","Malmanieloop at Naauwpoort",-25.81361,26.04889],["A3H019","Doornplaat 85 JO on Right Canal of Malmanieloop (NCWQ)",-25.76408,25.99167],["A3H021","Paardenvallei 67 JO on Malmanieloop Upper Eye (NCWQ)",-25.63314,25.99131],["A3H022","Paardenvallei 67 JO on Malmanieloop Lower Eye (NCWQ)",-25.63153,25.99542],["A3H028","Riekersdam 109 JP on Left Canal from Marico-Bosveld Dam (NCWQ)",-25.46847,26.39283],["A3H029","Riekersdam 109 JP downstream Weir of Marico-Bosveld Dam",-25.46178,26.39233],["A3H030","Kalkdam 241 JP Weir for Leakage from Klein-Maricopoort Dam on Klein-Maricor",-25.52208,26.15114],["A3H031","Kalkdam 241 JP on Left Canal from Klein-Maricopoort Dam (NCWQ)",-25.52169,26.15033],["A3H032","Veeplaats 108 JP downstream Weir for Kromellenboog Dam",-25.43894,26.35014],["A3H033","Kromellenboog 104 JP on Left Canal from Kromellenboog Dam (NCWQ)",-25.44281,26.34569],["A4H002","Zandrivier Vaalwater",-24.28222,28.09028],["A6H037","Vogelfontein (NCWQ)",-24.615,28.69028],["A7H009","At Dorothy on Sandrivier (ncwq)",-22.49056,29.98333],["A8H014","Beaconsfield 212 MT - on Mutshedzi (NCWQ)",-22.93504,30.15727],["A9H015","Barotta",-23.03694,30.27694],["A9H026","Tshivhasa Duthuni near R523 Road on Mutshindudi River (NCWQ)",-22.95139,30.35806],["A9H027","At Levubu Settlements on Latonanda (NCWQ)",-23.0525,30.23944],["A9H028","Luvuvhu at Nooitgedacht",-23.08645,30.17488],["A9H030","Nandoni Dam downstream of Dam Weir on Luvuvhu River (NCMP nmmp)",-22.97852,30.60104],["B1H002","At Elandspruit on Spookspruit (NCWQ)",-25.81833,29.33778],["B1H006","Rietfontein on Trichardspruit (NCWQ)",-26.35583,29.21417],["B1H019","Naauwpoort 335 JS on Noupoortspruit (NCWQ nemp NEMP)",-25.93972,29.2575],["B1H028","Canal from Rietspruit Dam on Roodepoort (ZRSR09)",-26.17333,29.24944],["B1H030","at Driefontein D/S Duhva Zbk on Boesmankransspruit",-25.98611,29.33222],["B2H016","At Waterval on Wilge River (NCWQ NCMP NTOX)",-25.57878,29.12747],["B3H019","Roodepoort Dam on Selons River: Down Stream Weir",-25.39722,29.48333],["B3H025","Moganyaka Loskop Noord 12 JS - at Olifants Rivier; near Weir (NCMP)",-24.95861,29.39528],["B4H015","Potloodspruit on Right Canal from Klein Spekboomrivier",-25.00833,30.5],["B6H005","Driehoek on Blyderivier (NCWQ NCMP)",-24.51389,30.82889],["B6H017","Middlesex on Blyde (NCWQ)",-24.31389,30.85594],["B8H007","At Mahale on Groot-Letaba",-23.67028,30.99028],["B8H009","The Junction on Groot-Letaba (NCWQ)",-23.88028,30.36694],["B8H030","Kruger National Park at Klipkoppiesdrif on Letaba",-23.94167,31.73056],["B8H031","Vergelegen Dam",-23.775,30.1],["B8H033","Tabaan State Land on Klein-Letaba (NCWQ NCMP)",-23.281,30.54306],["B8H038","At Prieska on Right Canal from Groot-Letaba (ncwq)",-23.64556,30.71861],["B8H039","Great Letaba River: Onverwacht - Big Sluice-Right",-23.94167,29.9875],["B8H045","Turksvygbult on Left Canal from Magoebaskloof Dam (nemp nemp)",-23.82222,30.05694],["B8H046","Magoebaskloof Dam at Down Stream Weir on Politsi",-23.81667,30.0625],["B8H049","Doornhoek Tzaneen Dam on Pipeline from Tzaneen Dam to Treatment Works (NCWQ)",-23.8,30.16667],["B9H002","At Silvervis Dam/Kruger National Park on Shingwidzi (NCMP)",-23.21528,31.22],["B9H003","Shingwidzi River at Kanniedood Dam Kruger National Park (NCMP)",-23.14327,31.46262],["C1H004","Branddrift 322 IS Roodebank on Watervalrivier (NCWQ)",-26.62794,29.02447],["C1H005","Welbedacht 382 IS on Leeuspruit ( See C1H044 for Flow) (NCWQ nemp NEMP)",-26.85431,29.32528],["C1H006","Rietvley 488 IS on Blesbokspruit (NCWQ nemp NEMP)",-26.77581,29.54144],["C1H011","Grootdraai 1121 on Vaalrivier",-27.01889,28.64583],["C1H015","Sterkfontein Delangesdrift at Steel Bridge on Kliprivier",-27.17447,29.23572],["C1H038","Secunda Driefontein 289 IS - at Road Bridge on Trichardspruit",-26.52972,29.15056],["C1H041","Evander Sewage Works Discharge",-26.49361,29.11806],["C1H042","Embalenhle Sewage Discharge Point",-26.55139,29.07722],["C1H043","Brenden Village Waste Water Treatment Works Discharge Point",-26.51028,29.01861],["C2H003","Elandsfontein 53 at Engelbrechtsdrift on Vaalrivier",-26.82022,28.06331],["C2H006","Klerkskraal at Klerkskraal Dam on Mooirivier",-26.25222,27.16056],["C2H007","Pilgrims Estate 272 at Orkney on Vaalrivier (ncwq NCMP GEMS)",-27.01011,26.69808],["C2H010","Rietfontein at Vereeniging Intake 1 (Rw) on Vaalrivier",-26.68917,27.93639],["C2H011","Gerhardminnebron Eye at Gerhardminnebron (ncwq NCMP)",-26.47694,27.1525],["C2H013","Turffontein on Upper Turffontein Eye (NCWQ)",-26.40806,27.17833],["C2H015","Mckay 602 IQ at Waldrift Vereeniging on Kliprivier",-26.64318,27.96101],["C2H017","Killarney 745 Flood Section at Kommandodrif on Vaalriver",-27.4809,26.21977],["C2H020","Witpoortjie Roodepoort on Kliprivier (ntox)",-26.18333,27.81861],["C2H023","Luipaardsvlei on Wonderfonteinspruit",-26.22389,27.74],["C2H024","Gemspost 288 IQ Gemsbokfontein D/S Donaldson Dam on Wonderfonteinspruit (ncwq)",-26.28417,27.68028],["C2H025","Wfr 4 Gemspost 288 IQ on Wonderfonteinspruit (NCWQ)",-26.28883,27.66922],["C2H026","Middelvlei on Middelvleispruit (ncwq)",-26.2325,27.66917],["C2H027","Middelvlei on Kocksoordspruit",-26.23333,27.6525],["C2H028","Rietfontein on Rietfonteinspruit",-26.24778,27.59],["C2H030","Wonderfontein Eye at Wonderfontein-(Canal) (ncwq)",-26.31306,27.48889],["C2H032","Mooirivierloop (River) at Wonderfontein",-26.31667,27.3925],["C2H044","Wonderfontein on Oberholzer Canal South",-26.33417,27.38694],["C2H045","Dsw 9 Carletonville - Driefontein Canal from Driefontein Mine to Mooirivierloop",-26.34856,27.43058],["C2H057","Wonderfontein on West Driefontein Canal (ncwq)",-26.31306,27.38889],["C2H061","Palmietfontein 250 - at Klipplaatdrift on Vaal River (NCWQ NCMP nemp NEMP)",-27.38972,26.46389],["C2H062","Rietfontein on Leeu Spruit",-26.40528,27.60111],["C2H063","Wfr 7 Carletonville 270 IQ at Rooipoort on West Driefontein Transfer Canal (NCWQ)",-26.34119,27.42833],["C2H064","Oog van Schoonspruit 186 IP on Skoon Spruit (ncwq NCMP)",-26.28389,26.86083],["C2H074","Uitspanning Aan Wonderfontein 104 IQ Furrow at Tarred Road North of Welverdiend",-26.36306,27.26722],["C2H075","Welverdiend at Blaauwbank Rail Bridge on Mooirivierloop",-26.36889,27.25278],["C2H077","Wonderfontein on East and West Driefontein Canals Confluence",-26.32556,27.40333],["C2H078","Wonderfontein 103 IQ on Canal from Venterspost Gold Mine",-26.32556,27.40333],["C2H079","Wonderfontein on Venterspost Driefontein Canal C2H077 + C2H078 Mixed",-26.32556,27.40333],["C2H080","Wonderfontein at End 1M Pipeline from Venterspost Gold Mine",-26.32639,27.41056],["C2H081","Wonderfontein on Canal Out of Venters Post G/M Pipeline C2H080",-26.32639,27.41056],["C2H082","Rooipoort Wonderfontein on Inlet Canal to Nature Reserve",-26.3275,27.42611],["C2H083","Wonderfontein on Outflow from North Canal to Nature Reserve Uitspanning",-26.33556,27.32889],["C2H092","Canal from Gerhard-Minnebron-Eye at Gerhardminnebron",-26.47994,27.15139],["C2H102","At Daveyton Klipfontein U/S N12 on Blesbokspruit",-26.16389,28.46222],["C2H107","Canal from West Driefontein Canal at Wonderfontei",-26.31306,27.38889],["C2H110","Witkoppies 382 IQ on Left Principal Canal from Boskop Dam (NCWQ nemp NEMP)",-26.56261,27.11028],["C2H113","Klerkskraal on Right Principal Canal from Klerkskraal Dam (NCWQ)",-26.2525,27.16056],["C2H114","Potchefstroom Dam on Left Canal from Potchefstroom Dam",-26.67194,27.1],["C2H116","Klipdrift 422 IQ on Left Canal from Klipdrift Dam",-26.61944,27.29528],["C2H118","Elandskuil Dam on Swart Leegte River: Right Canal",-26.34917,26.77778],["C2H119","Rietspruit Dam on Riet Spruit: Left Canal",-26.41361,26.7975],["C2H122","Vaal Dam on Vaal River: Down Stream Weir (NCWQ NCMP nemp NEMP)",-26.85417,28.12111],["C2H131","Rw C-S1 Colliery Point on Suikerbosrant River (NCMP)",-26.62889,28.29722],["C2H132","Tamboekiesfontein (Herman) (Rw R5) on Rietspruit",-26.42889,28.18139],["C2H133","Rw C-B10 at Heidelberg on Blesbok Spruit (NCMP)",-26.51028,28.35139],["C2H134","Cowles Dam Outflow at Springs (Rw B9)",-26.20694,28.4675],["C2H135","Rietfontein (Rw N8) Natalspruit",-26.42528,28.16611],["C2H136","Rietspruit at Waterval (Luttig) (Rw R6)",-26.45,28.08889],["C2H137","Klip River at Zwartkopjes (Rw K21)",-26.37972,28.07111],["C2H138","Vaal River at Groot Vadersbosch/Buffelsfontein",-26.93472,26.80083],["C2H139","Koekemoer Spruit at Buffelsfontein (NCMP)",-26.91722,26.81722],["C2H140","Vaal River at Woodlands/Goose Bay Canyon (ncwq NCMP nemp NEMP)",-26.73806,27.59194],["C2H141","Klip River at Witkop (New Bridge) (ncwq NCMP)",-26.45,28.08583],["C2H142","At Grootvlei Mine Bridge East",-26.25547,28.49825],["C2H143","Grootvlei Mine Retention Dam Discharge Point B3B",-26.25083,28.49278],["C2H144","Grootvlei Mine Discharge - End of Pipe (B3C)",-26.25056,28.49222],["C2H145","Vlakfontein 281 JR Marievale Bird Santuary on Blesbokspruit",-26.35861,28.50917],["C2H146","Daggafontein 125 IR 2 km downstream N17 on Blesbokspruit",-26.27247,28.50472],["C2H147","at Grootvlei Betw Mine Bridge + N17 on Blesboksprui",-26.25944,28.5025],["C2H148","at Nigel Brick Works R42 Bridge on Blesbokspruit",-26.38972,28.49778],["C2H149","(B8) Nigel R51 Road Bridge to Balfour (NMMP)",-26.4275,28.50444],["C2H150","R555 Road Bridge on Blesbokspruit",-26.21306,28.48083],["C2H151","Wonderfontein (New) on Oberholzer Canal South (ncwq)",-26.3325,27.39111],["C2H152","Luipaardsvlei 246 IQ at Rail Bridge near Turk Shaft on Wonderfonteinspruit",-26.13972,27.76667],["C2H153","Goed 402 IQ at Randfontein Azaadville Bridge on Wonderfonteinspruit",-26.16444,27.76722],["C2H154","Luipaardsvlei at Doornkop Road Bridge on Wonderfonteinspruit",-26.26583,27.69944],["C2H155","West Driefontein Gold Mine Fissure H2O D/S of Nor",-26.36361,27.47278],["C2H156","West Driefontein Gold Mine Process H2O Road Bridg",-26.35766,27.43309],["C2H157","Wonderfontein at Low Water Bridge on Mooirivierloop",-26.32361,27.35417],["C2H161","Turffontein 126 IQ at Gravel Rd Bridge to Muiskraal on Mooirivierloop",-26.43472,27.15194],["C2H162","At Rysmierbult Road Bridge U/S Boskop Dam on Mooirivier",-26.51444,27.12472],["C2H163","Varkenslaagte Spruit on Farm Bridge D/S Western D",-26.435,27.33944],["C2H164","Western Nursery Dam Overflow at Elandsrand Gold M",-26.44556,27.34444],["C2H165","Deelkraal Gold Mine Recreational Dam Deelkraal Gm",-26.455,27.31806],["C2H166","Buffelsdoorn 143 IQ at Johannesburg Potchefstroom Road Bridge on Buffelsdspruit",-26.4925,27.37333],["C2H167","Elandsfontein 115 IQ Johannesburg Potchefstroom Rd Bridge on Elandsfonteinspruit",-26.45667,27.42083],["C2H168","Kraalkop 147 IQ at Old Johannesburg Potchefstroom Rd Bridge on Kraalkopsprui",-26.43917,27.49889],["C2H169","Weltevreden 357IQ at Losberg Bank Road Bridge on Loopspruit",-26.47889,27.53944],["C2H170","Klipdrift 395 IQ at at Klipdrift Dam on Loop Spruit Canal Outflow",-26.61694,27.29611],["C2H172","Bovenste Eye at Mooirivier Catchment",-26.20056,27.1625],["C2H173","Potchefstroom on Main Canal from Boskopdam",-26.66028,27.08583],["C2H174","Potchefstroom on Main Canal Potchefstroom Dam",-26.66167,27.08639],["C2H175","Uitspanning Aan Wonderfontein 104 IQ at Harry S Dam Overflow on Mooirivierloop",-26.33611,27.3375],["C2H176","Welverdiend at Doringdraai Dam on Varkenslaagtespruit",-26.38833,27.27417],["C2H177","Welgedacht on Blesbokspruit",-26.19861,28.47972],["C2H178","Grootvlei Mine Bridge 50M West",-26.25528,28.49694],["C2H179","Grootvaly 124 IR at Springs Ermelo Rd Bridge on Blesboksp (Duplicate of 90695)",-26.26611,28.50417],["C2H180","N17 Road Bridge Over Blesbokspruit",-26.27333,28.505],["C2H181","Daggafontein 125 IR Point 2 on Blesbokspruit",-26.29053,28.50275],["C2H182","Vlakfontein 281 IR at Marievale Bird Sanctuary Bridge on Blesbokspruit",-26.35528,28.51611],["C2H183","R42 Delmas- Nigel Road Bridge",-26.38694,28.50556],["C2H184","Noycedale 191 IR Nigel on Blesbokspruit",-26.43886,28.45636],["C2H185","Poortjie Road on Blesbokspruit",-26.47806,28.42583],["C2H186","Klipstapel 384 IR Duplicate on Blesbokspruit",-26.58417,28.29861],["C2H187","Homestead Lake Overflow",-26.17528,28.29306],["C2H188","Rietfontein 115 IR New Kleinfontein on Benoni Old Waste Water Treatment Works",-26.21028,28.31806],["C2H189","Blesbokspruit Canal at Snake Road",-26.18194,28.33472],["C2H191","Vlakfontein 69 IR Rynfield Dam Overflow (Dup)",-26.16028,28.36528],["C2H192","Vlakfontein 69 IR Victor Penning Bird Sanctuary Outflow",-26.15861,28.36611],["C2H194","Modderfontein 76 IR Railway Stream Hospital Road Stream",-26.19944,28.39111],["C2H196","Blesbokspruit on R29 Main Reef Road",-26.18389,28.39194],["C2H197","Modderfontein 76 IR Government G/M Areas",-26.21167,28.40694],["C2H198","Murray Park Blesbokspruit at Bird Dam Outflow",-26.2125,28.41806],["C2H199","Geduld Deryck Terblanche Park (6/L/4)",-26.22528,28.42222],["C2H200","East Geduld Mines Enstra Road on Canal Outlet from Alexander Dam",-26.21583,28.44194],["C2H201","Sappi Combined Final Effluent",-26.21,28.45056],["C2H202","Sappi Combined Final Effluent",-26.20889,28.45417],["C2H203","Cowles Dam Overflow",-26.205,28.46417],["C2H206","Grootvlei Mine Springs-Raw Underground Water",-26.25056,28.48889],["C2H207","Grootvlei Mine Hds Plant Effluent",-26.24944,28.49583],["C2H208","Grootvlei Mine Springs-Shaft 4",-26.235,28.47833],["C2H210","Klein Blesbokspruit on R29 Ermelo Road",-26.2625,28.48472],["C2H212","Nigel Stormwater Canal on R42 Road",-26.41583,28.46667],["C2H214","Maraisdrift 190 IR - Nigel Jameson Park Waste Water Treatment Works Poortjie Rd",-26.46028,28.42333],["C2H216","Stream from Duduza at Kaydale",-26.47028,28.4025],["C2H218","Klip River at R41 Witpoortjie U/S Durban Deep Mine (NMMP)",-26.17667,27.81861],["C2H219","Klip River at Durban Deep Mine (D/S Shaft no.5)",-26.1775,27.83694],["C2H220","At Golden Highway Olifantsvlei van Wyk on Kliprivier (NMMP)",-26.33611,27.90306],["C2H221","Russel Stream at New Canada Rd D/S Crown Mine",-26.22028,27.98194],["C2H222","At New Canada Road on Russel Stream",-26.21119,27.95233],["C2H223","Russel Stream (Klipspruit Trib.) at Booysens Res /",-26.22694,28.00306],["C2H224","Klipspruit at Soweto Highway; Mzimhlope Hostel-M82",-26.2225,27.92889],["C2H225","Rosherville Lower Germiston on Stream at City Deep",-26.22694,28.10667],["C2H226","at R46 ds City Deep Gm on Stream at Simmer + Jack Gm",-26.23778,28.12417],["C2H227","Hillview Smith Avenue U/S Simmer + Jack Gm on Stre",-26.2175,28.13472],["C2H228","Natal Spruit at Alberton/Heidelberg Road-R554",-26.29611,28.14194],["C2H229","At Delmore U/S Elsburg Dam R46 on Elsburgspruit",-26.21278,28.195],["C2H230","At Wadeville D/S Elsburg Dam R39 on Elsburgspruit",-26.24861,28.205],["C2H231","Downstream of Cinderella Dam on Dixie Spruit",-26.26139,28.22222],["C2H232","Riet Spruit at R103/Mapleton Agricultural Holding",-26.37083,28.24444],["C2H233","Klip River at Riviera Golf Course (U/S Confluence",-26.66389,27.95556],["C2H234","Suikerbosrantriver at Badfontein (NCWQ)",-26.69333,28.11],["C2H235","Stormwater Canal at Palmiet Ferrochrome S",-26.13222,27.75917],["C2H236","Manganese Metal Property",-26.1125,27.76],["C2H237","Rietvalei 241 IQ Flip Human WCW Final Effluent",-26.18111,27.77111],["C2H238","Luipaardsvlei Panvlak Gold Mine",-26.25139,27.74],["C2H239","Final Effluent from Hannes van Niekerk WCW at Ven (nemp)",-26.31,27.61111],["C2H240","Final Effluent from W + E Driefontein at Kraalkop",-26.42889,27.46806],["C2H241","Final Effluent from Doornfontein G/M#3 at Doornfo",-26.425,27.34556],["C2H242","Welverdiend Final Effluent from DOORNFONTEIN#1 G/M",-26.39,27.32],["C2H244","Eastdene Final Effluent from Blyvooruitzicht Gold Mine",-26.38861,27.39278],["C2H245","Blyvooruitzicht 116 IQ - Final Effluent from Western Deep Levels North Gold Mine",-26.41942,27.40658],["C2H246","Loopspruit at Gravel Road Bridge Leeudoorn (D/S K",-26.43306,27.55417],["C2H247","Loopspruit at Gravel Piet Viljoen Park Fochville",-26.49972,27.50194],["C2H248","Concrete Stormwater Canal at Bekkersdal",-26.27889,27.69556],["C2H249","(Check Position ! Duplicate) at Klipdrift Dam O/Flow Klipdrift on Loopspruit",-26.61875,27.299],["C2H250","Vaalriver (Bridge) at Scandinawiedrif",-26.93667,27.05861],["C2H251","At Parys on Vaalrivier",-26.89417,27.46111],["C2H252","Mooi River at D/S of Dam Overflow Potchefstroom",-26.6855,27.10156],["C2H253","Potchefstroom Grimbeekpark at Road Bridge on Mooirivier",-26.71583,27.10722],["C2H254","Wilgeboom 457 IQ at Potchefstroom on Mooirivier",-26.75139,27.09972],["C2H255","Potchefstroom Final Effluent from Potchefstroom WCW",-26.75056,27.09444],["C2H256","Potchefstroom at Potchefstroom Parys Road on Loopspruit",-26.72889,27.12611],["C2H257","Final Effluent from Kokosi WCW at Kokosi",-26.49722,27.46028],["C2H258","Loopspruit 100M ds Kokosi WCW at Kokosi",-26.49917,27.46],["C2H259","Elandsfontein 115 IQ Final Effluent from Western Deep Levels South STW",-26.44831,27.42139],["C2H260","At Kromdraai Low Water Bridge on Vaal River (NCMP)",-26.88722,26.92694],["C2H261","Wonderfontein on Final Effluent from Oberholzer STW",-26.33056,27.38111],["C2H262","Final Effluent from Wedela SW at Buffelsdoorn",-26.48694,27.375],["C2H263","Overflow from Return Water Dam at Buffelsdoorn",-26.46861,27.36636],["C2H265","Final Effluent from East Driefontein at Phomolong",-26.38472,27.4975],["C2H266","Final Effluent from West Driefontein #4 at West D",-26.38361,27.42528],["C2H267","Khuthong STW at Final Effluent at Wonderfonteinspruit",-26.35306,27.30889],["C2H268","Welverdiend Final Effluent from Welverdiend STW",-26.37139,27.25583],["C2H269","Varkenslaagtespruit at Doornfontein (Doorndraai D",-26.43917,27.32778],["C2H270","Luipaardsvlei on Wonderfonteinspruit Outflow from Dam",-26.21611,27.74222],["C2H271","Luipaardsvlei at R559 Bridge on Wonderfonteinspruit",-26.24472,27.73111],["C2H274","Van Niekerksrust Vierfontein - on Vierfonteinspruit (NCWQ)",-27.07158,26.7584],["C3H006","Groenfontein 311 IO - at Road Bridge on Hartsrivier at Barberspan Dam",-26.618,25.57683],["C3H007","Espagsdrif Seoding 25 Bridge at the Weir on Harts River (ncwq NCMP nemp nemp)",-27.90278,24.61556],["C3H012","Groot Vlakfontein 141 at Metsematshwe Reserve on Vlakfontein Eye",-27.65861,24.08889],["C4H003","Virginia 448 - at upstream Before Virginia Under R73 Road Bridge at Flowing",-28.11306,26.90917],["C4H016","Bloudrif - at R30 Road Bridge on Sand River near Mouth of Doornrivier (ncwq NCMP nmmp)",-28.1175,26.71944],["C4H021","Rheezicht 2242 - at Roadbridge Raphidam 2150 on Klein Vet River (NCWQ NCMP)",-28.61876,27.01681],["C4H023","Strydfontein 23 - at Road Bridge U/S Erfnis Dam on Groot Vet River (NCWQ NCMP)",-28.71233,26.95916],["C5H014","Richie Klipdrift 109 - at U/S Side of Weir on Riet River (NCWQ NCMP)",-29.04222,24.6],["C5H049","Philippia Kalkfontein Dam Weir for Spilway Discharge on Riet T (NCWQ)",-29.47222,25.20667],["C5H050","Groothoek 125 - at Pipeline to Treatment Works - Thaba Nchu at Groothoek Dam (NCWQ)",-29.30278,26.84889],["C5H055","De Wetskom 452 - on Novo Canal (NCWQ)",-29.62417,26.71667],["C5H056","Diepwater 227 - on Modderrivier (NCWQ)",-29.37556,26.66556],["C6H006","Tweefontein Bothaville on Vals (NCWQ)",-27.47528,26.65861],["C6H008","Theron 875 at Theronsbrug on Valsrivier",-27.61083,27.10167],["C6H009","Lindley Brandhoek 20 - on Valsrivier",-27.87194,27.91528],["C7H001","Junction 172 - at Weir on Renosterrivier (NCWQ)",-27.26528,27.17278],["C8H008","At Metz Sterkfontein Dam on Tugela-Vaal Canal on Tugela -Vaal Canal to Sterkfontein Dam (n",-28.54139,29.08333],["C8H011","Killarney 604 on Elandsrivier (NCWQ)",-28.16083,28.87472],["C8H030","Slabberts 1097 - on Wilgerivier",-27.29389,28.48889],["C8H037","Reward 7 - at Weir on Liebenbergsvleirivier (NCWQ)",-27.79583,28.31778],["C8H038","Witzieshoek 1926 at Fika-Patso on Namahadi (NCWQ)",-28.66778,28.85444],["C9H006","At Bloemhof on Vaalrivier",-27.65417,25.59389],["C9H008","Nazareth Farm Weir 1KM downstream of Vaalharts Dam Wall at the Wier on Vaal River (ncwq NC",-28.11417,24.91528],["C9H010","Wilmea Vaal Gamagara 0.85KM After Confluence of Harts and Vaal River (nemp nemp)",-28.40583,24.27167],["C9H020","Schoolplaats (Vaal- Harts Storageweir)",-28.11528,24.92583],["C9H023","Schmidtsdrift near Old Diggings R64 Bridge on Vaal River",-28.70417,24.075],["D1H031","Lesotho - on Oranjerivier (Senqu)",-30.36389,27.575],["D2H012","Caledonspoort 190 the Poplars 199 at the Poplars on Little Caledon River (ncwq NCMP)",-28.69485,28.23487],["D2H033","Welbedacht 285 - at Gauging Weir on Caledon River D/S of Welbedachtdam",-29.92556,26.86],["D2H034","Mpharane - at Dam Spillway on Meulspruit Dam (NCWQ)",-28.88056,27.835],["D2H039","Caledonspoort on Caledon River (NCWQ)",-28.69,28.23],["D3H034","Scheiding Orange-Riet Canal on Orange-Riet Canal",-29.89,24.7],["D3H035","Naauwpoort 417 Scheiding - at Ramah Canal",-29.90677,24.70137],["D4H005","Kuruman Oog a (D4H005) - NC18",-27.4641,23.4362],["D4H007","Manyeding Oog (D4H007) - NC20",-27.502,23.6841],["D4H009","Groot Kono Oog (D4H009) - NC17",-27.6826,23.6043],["D4H012","Mmabatho",-25.86389,25.55778],["D4H014","Molopo Oog(D4H014) - WR49",-25.8895,26.0259],["D4H016","Welgedacht 103 JO on Welgedacht Eye",-25.82306,25.96667],["D4H017","Olievendraai Oog (D4H017) - WR66",-25.8573,25.8714],["D5H005","Seekoeigat 277 - Flow Monitoring on Rietrivier",-31.60742,20.65306],["D7H009","Rietfontein 11 Koegas on Oranjerivier",-29.32778,22.31806],["E1H006","Jd-B - Clanwilliam Commonage Warmhoek - at Gauging Weir on Jan Disselsrivier (NCWQ)",-32.21156,18.93676],["E1H007","Kromme Valley 113 Bulshoek Dam on Left Bank Canal from Bulshoek Dam (NCWQ nmmp)",-31.99523,18.7866],["E1H016","Andriesgrond Clanwilliam Dam on Olifants River",-32.18,18.87],["E1H018","Olifants River at Visgat (NCMP)",-33.08883,19.21878],["E2H009","Uitkomst Inverdoorn Canal from Valsgatrivier (NCWQ)",-33.29588,19.63578],["E3H004","Olifants River at Lutzville (Formerly E2H016) (ncwq NCMP)",-31.5653,18.3306],["G1H066","Gouda Nieuwkloof - on Inlet Canal from Klein Berg River to Voelvlei Dam (nemp NEMP)",-33.29417,19.0575],["G1H067","Doorn Boom 199 - on Inlet Canal from Vier-en-Twintig-Riviere to Voelvlei Dam",-33.31917,19.05306],["G1H076","Robertsvlei - Berg River Dam - on Berg River U/S of Berg River Dam (NCMP)",-33.95578,19.07289],["G1H077","Robertsvlei - Berg River Dam - on Berg River D/S of Berg River Dam (NCMP)",-33.90494,19.05478],["G1H078","Boschendal - Dwars River at Boschendal (NCMP)",-33.87358,18.98214],["G1H080","Wemmershoek - on Wemmershoek River at Wemmershoek Dam (NCMP)",-33.8524,19.04252],["J2H001","Klipfontein 93 - on Gamkarivier",-33.08347,21.94031],["K6H019","Newlands 224 - on Keurbooms River (NCMP)",-33.94583,23.3675],["K6H020","Roodefontein 440 on Klein Piesangrivier",-34.08,23.34],["K9H008","Humansdorp on Pipeline to Purification Works (NCWQ)",-34.02,24.77],["L2H003","Murraysburg on Buffelsrivier",-31.95528,23.78278],["L8H002","Welgelegen 230 on Jordaanrivier Haarlemspruit (NCWQ)",-33.73778,23.30444],["M1H011","Zwartkops River D/S Fraans Claasen Bridge below Kelvin Jones WWTW",-33.78917,25.42694],["Q1H013","Zeeven Fonteynen 254 on Klein Brak River (NCWQ NCMP)",-31.77778,25.31833],["Q2H001","Great Fish River at Visrivier-N10",-31.91389,25.41917],["Q8H011","Brak Fontein 261 at Rietfontein Junction Drift on Klein-Visrivier (NCWQ)",-33.09139,25.95583],["Q9H011","Farm 549 at Upsher on Katrivier",-32.56806,26.68417],["Q9H028","Seymour at Weltevreden Treatment Works on Pipeline from Katrivier Dam",-32.55872,26.75536],["R2H010","135 K.W.T. Q. 2.25 U/S James Mcintyre Bridge on Buffalo River (NCWQ nemp nmmp NEMP)",-32.94053,27.46064],["R2H011","Fort Murray North Outspan on Yellowwoods River",-32.92489,27.47911],["R2H015","Fort Murray North Outspan on Yellowwoods River (NCWQ nemp nmmp NEMP)",-32.93169,27.47256],["R2H016","Jan Tzatzoes Location North 1924 at Malakalaka on Zwelitshaspruit (Duplicate)",-32.93511,27.44589],["R2H021","Quesha S Dam a 695 on Pipeline to Beacon Hill from Rooikrans Dam (NCWQ)",-32.75544,27.32769],["R2H022","Quesha S Dam a 695 on Pipeline to Goodhope Textiles from Rooikrans Dam",-32.75544,27.32769],["R2H027","Potsdam Ndantsane at Mhlabati Needs Camp on Buffalo River (ncwq NCMP gems)",-32.99164,27.64003],["R2H029","Bridle Drift Dam on Buffalo River",-32.99472,27.73389],["S1H004","Wit Kei River at Cacadu (NCWQ)",-31.84744,27.18522],["S3H013","At Hot Fire High Clere on Swart-Kei River (ncwq NCMP)",-32.17389,27.3725],["S7H002","Butterworth at Thorn Drift on Gcuwa",-32.3344,28.1911],["T1H001","Caca 45 Xuka Drift (NCWQ NCMP)",-31.67194,28.11083],["T1H008","Slang River at Road Bridge upstream of Elliot WWTW",-31.33307,27.85493],["T3H011","Ugie at Road Bridge on Wildebeesrivier (Inxu)",-31.19357,28.23693],["T3H016","Tsitsa River at R56 Bridge to MT Frere",-31.23694,28.85417],["U1H007","Pipeline from Mkomazi River Umkomaas WWTW",-30.1813,30.76643],["U7H012","Umbumbulu - on Nungwane River",-30.00611,30.71222],["V2H014","Mearns 15142 - on Mooirivier",-29.24619,29.97031],["V6H004","Klein Fontein 1262 Gt on Sundays River (ncwq NCMP)",-28.40444,30.01306],["W2H007","Ekuhlengeni 701 Hu at Mission on Kwambizankulu",-27.96028,31.19389],["W2H014","at Riversdale Natal Mine on Tributary of Kwamewelawele",-27.80722,31.1025],["W2H022","Klipstapel 71 Gu (2121/5) on Wit-Mfolozi",-28.2,31.02361],["X1H034","Vygeboom Dam Vygeboom 619 JT - at Schoemans Canal (Left) from Vygeboom Dam",-25.88333,30.62083],["X2H059","Goede Hoop 128 JU on Witrivier",-25.46233,31.08272],["X2H064","Kruisfontein 226 JT - at Left Canal from Kruisfonteinspruit at Kruisfontein",-25.18528,30.88028],["X2H095","Boschrand 283 JT - at Road Bridge on Krokodilrivier",-25.46142,30.96506],["X3H023","Emmet - Boschoek 290 KU - Sabie River at Emmett of the R536 (NCMP)",-25.0309,31.02828]];
+const $=s=>document.querySelector(s);
+const tip=$("#tip");
+function showTip(h,x,y){tip.innerHTML=h;tip.style.opacity=1;
+  tip.style.left=Math.min(x+12,innerWidth-230)+"px";tip.style.top=(y+12)+"px";}
+function hideTip(){tip.style.opacity=0;}
+
+/* ---------------- MAP ---------------- */
+L.Icon.Default.imagePath='vendor/lib/images/';
+const map=L.map('map',{scrollWheelZoom:false}).setView([-29,25],5);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+  maxZoom:18,attribution:'&copy; OpenStreetMap'}).addTo(map);
+map.on('focus',()=>map.scrollWheelZoom.enable());
+map.on('blur',()=>map.scrollWheelZoom.disable());
+
+const dwsUrl=code=>`https://www.dws.gov.za/hydrology/Verified/HyDataSets.aspx?Station=${code}`;
+
+/* verified-working set: seed + anything the user confirms (persisted where storage allows) */
+const SEED_VERIFIED=["A2H010"];
+let verified=new Set(SEED_VERIFIED);
+try{
+  const saved=JSON.parse(localStorage.getItem("dws_verified")||"[]");
+  saved.forEach(c=>verified.add(c));
+}catch(e){}
+function persistVerified(){
+  try{localStorage.setItem("dws_verified",JSON.stringify([...verified]));}catch(e){}
+}
+const styleV={radius:6,color:"#136353",weight:1,fillColor:"#1f8a70",fillOpacity:.9};
+const styleU={radius:5,color:"#9aa8a0",weight:1.5,fillColor:"#ffffff",fillOpacity:.9};
+
+const cluster=L.markerClusterGroup({maxClusterRadius:45,spiderfyOnMaxZoom:true});
+const byCode={};
+function popupHTML(code,name){
+  const isV=verified.has(code);
+  const harvested=HARVESTED.has(code);
+  const CHK="\u2713", ARR="\u2197";
+  let h=`<div class="pop-code">${code}</div>`+
+    `<div class="pop-name">${name}</div>`;
+  if(harvested){
+    h+=`<button type="button" class="pop-btn js-load" data-code="${code}">Load charts now</button>`+
+      `<span class="pop-badge v">${CHK} data on server</span>`+
+      `<div class="pop-warn" style="margin-top:8px">Or <a href="${dwsUrl(code)}" target="_blank" rel="noopener">open the DWS page ${ARR}</a> for the newest record.</div>`;
+  }else{
+    h+=`<a class="pop-btn" href="${dwsUrl(code)}" target="_blank" rel="noopener">Download from DWS ${ARR}</a>`;
+    h+=(isV
+      ? `<span class="pop-badge v">${CHK} verified working</span>`
+      : `<div class="pop-warn">If the DWS page shows an "Object cannot be cast from DBNull" error, this site has no downloadable flow record \u2014 try another station.</div>`+
+        `<button type="button" class="pop-verify js-verify" data-code="${code}">Mark this station verified working</button>`);
+  }
+  return h;
+}
+
+STATIONS.forEach(([code,name,lat,lon])=>{
+  const m=L.circleMarker([lat,lon], verified.has(code)?styleV:styleU);
+  m.bindPopup(()=>popupHTML(code,name));
+  m.on("popupopen",e=>{
+    $("#selbox").innerHTML=`Selected: <b>${code}</b>`;
+    const root=e.popup.getElement();      // the popup DOM for THIS marker
+    if(!root) return;
+    const loadBtn=root.querySelector(".js-load");
+    if(loadBtn) loadBtn.addEventListener("click",()=>{
+      loadBtn.textContent="Loading\u2026"; loadBtn.disabled=true;
+      loadHarvested(code).then(ok=>{
+        if(ok){ map.closePopup();
+          document.getElementById("panelFlow").scrollIntoView({behavior:"smooth",block:"start"});
+        }else{ loadBtn.textContent="Load failed \u2014 use DWS link"; loadBtn.disabled=false; }
+      });
+    });
+    const vBtn=root.querySelector(".js-verify");
+    if(vBtn) vBtn.addEventListener("click",()=>{
+      verified.add(code); persistVerified();
+      m.setStyle(styleV); m.setPopupContent(popupHTML(code,name));
+      refreshCount();
+    });
+  });
+  m._code=code; m._name=name;
+  byCode[code]=m; cluster.addLayer(m);
+});
+map.addLayer(cluster);
+function refreshCount(){
+  $("#count").textContent=`${STATIONS.length} stations \u00b7 ${verified.size} verified`;
+}
+refreshCount();
+
+/* -------- auto-load harvested peaks committed to the repo -------- */
+let HARVESTED=new Set();
+fetch("data/peaks/index.json",{cache:"no-store"})
+  .then(r=>r.ok?r.json():null)
+  .then(idx=>{
+    if(!idx||!idx.available)return;
+    HARVESTED=new Set(idx.available);
+    HARVESTED.forEach(c=>{verified.add(c); if(byCode[c]) byCode[c].setStyle(styleV);});
+    refreshCount();
+  })
+  .catch(()=>{});
+
+function loadHarvested(code){
+  return fetch(`data/peaks/${code}PK.CSV`,{cache:"no-store"})
+    .then(r=>{if(!r.ok)throw 0;return r.arrayBuffer();})
+    .then(buf=>{
+      const txt=new TextDecoder("latin1").decode(new Uint8Array(buf));
+      FLOW=parseFlowCSV(txt);
+      if(!FLOW.length)throw 0;
+      $("#statFlow").textContent=`\u2713 Loaded ${code} from server: ${FLOW.length} monthly rows (${FLOW[0].y}\u2013${FLOW[FLOW.length-1].y})`;
+      $("#statFlow").className="status";$("#dropFlow").classList.add("ok");
+      initAfterFlow();
+      return true;
+    })
+    .catch(()=>false);
+}
+
+/* search */
+$("#search").addEventListener('input',e=>{
+  const q=e.target.value.trim().toLowerCase();
+  if(!q){$("#count").textContent=`${STATIONS.length} stations`;return;}
+  const hits=STATIONS.filter(([c,n])=>c.toLowerCase().includes(q)||n.toLowerCase().includes(q));
+  $("#count").textContent=`${hits.length} match${hits.length===1?'':'es'}`;
+  if(hits.length===1){
+    const [c,,lat,lon]=hits[0];
+    map.setView([lat,lon],12);
+    const mk=byCode[c];
+    cluster.zoomToShowLayer(mk,()=>mk.openPopup());
+  }
+});
+$("#search").addEventListener('keydown',e=>{
+  if(e.key!=='Enter')return;
+  const q=e.target.value.trim().toLowerCase();
+  const hits=STATIONS.filter(([c,n])=>c.toLowerCase().includes(q)||n.toLowerCase().includes(q));
+  if(hits.length){const [c,,lat,lon]=hits[0];map.setView([lat,lon],12);
+    const mk=byCode[c];cluster.zoomToShowLayer(mk,()=>mk.openPopup());}
+});
+
+/* ---------------- FLOW / VOLUME (verified parsers) ---------------- */
+const FLAGS={'$':{name:'Gauge plate',c:'var(--flag-dollar)'},'A':{name:'Above rating',c:'var(--flag-A)'},
+  'E':{name:'Estimated',c:'var(--flag-E)'},'M':{name:'Missing',c:'var(--flag-M)'},
+  'Q':{name:'Not audited',c:'var(--flag-Q)'},'':{name:'Verified',c:'var(--spring)'}};
+const FLAGGED=new Set(['E','M','A']);
+let FLOW=[],VOL=[];
+const state={from:null,to:null,series:'flow',hideFlagged:false};
+
+function parseFlowCSV(text){
+  const rows=[];
+  text.replace(/\f/g,'').split(/\r?\n/).forEach(line=>{
+    const p=line.split(',').map(s=>s.trim());
+    if(p.length>=5 && /^\d{8}$/.test(p[1])){
+      const d=p[1],lvl=p[3],flow=p[4];
+      let q=(p[5]||'').replace(/[^$AEMQ]/g,'');
+      const yr=+d.slice(0,4),mo=+d.slice(4,6),dy=+d.slice(6,8);
+      rows.push({ym:yr*12+(mo-1),y:yr,m:mo,level:lvl===''?null:+lvl,
+        flow:flow===''?null:+flow,q:q in FLAGS?q:''});
+    }
+  });
+  rows.sort((a,b)=>a.ym-b.ym);return rows;
+}
+function parseVolCSV(text){
+  const lines=text.split(/\r?\n/).filter(l=>l.trim());
+  if(!lines.length)throw new Error("empty file");
+  let start=/year|month|vol/.test(lines[0].toLowerCase())?1:0;
+  const out=[];
+  for(let i=start;i<lines.length;i++){
+    const p=lines[i].split(',').map(s=>s.trim());
+    if(p.length<3)continue;
+    const y=+p[0],m=+p[1],v=+p[2].replace(/[^0-9.\-eE]/g,'');
+    if(!Number.isFinite(y)||!Number.isFinite(m)||m<1||m>12||!Number.isFinite(v))continue;
+    out.push({y,m,vol:v,date:new Date(y,m-1,1)});
+  }
+  if(!out.length)throw new Error("no valid Year,Month,Volume_m3 rows found");
+  out.sort((a,b)=>a.date-b.date);return out;
+}
+function wireDrop(dropSel,inputSel,handler){
+  const drop=$(dropSel),inp=$(inputSel);
+  inp.addEventListener('change',e=>{if(e.target.files[0])readFile(e.target.files[0],handler);});
+  ['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('dragover');}));
+  ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('dragover');}));
+  drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f)readFile(f,handler);});
+}
+function readFile(file,handler){const r=new FileReader();r.onload=()=>handler(r.result,file.name);r.readAsText(file,'latin1');}
+
+wireDrop('#dropFlow','#fileFlow',(txt,name)=>{
+  try{
+    FLOW=parseFlowCSV(txt);
+    if(!FLOW.length)throw new Error("no data rows recognised — is this the DWS peaks CSV?");
+    $("#statFlow").textContent=`\u2713 ${name}: ${FLOW.length} monthly rows (${FLOW[0].y}\u2013${FLOW[FLOW.length-1].y})`;
+    $("#statFlow").className="status";$("#dropFlow").classList.add('ok');initAfterFlow();
+  }catch(err){$("#statFlow").textContent="\u2717 "+err.message;$("#statFlow").className="status warn";}
+});
+wireDrop('#dropVol','#fileVol',(txt,name)=>{
+  try{
+    VOL=parseVolCSV(txt);
+    $("#statVol").textContent=`\u2713 ${name}: ${VOL.length} months (${VOL[0].y}\u2013${VOL[VOL.length-1].y})`;
+    $("#statVol").className="status";$("#dropVol").classList.add('ok');drawVol();
+  }catch(err){$("#statVol").textContent="\u2717 "+err.message;$("#statVol").className="status warn";}
+});
+
+function initAfterFlow(){
+  const years=[...new Set(FLOW.map(d=>d.y))].sort((a,b)=>a-b);
+  const yf=$("#yrFrom"),yt=$("#yrTo");yf.innerHTML=yt.innerHTML="";
+  years.forEach(y=>{yf.insertAdjacentHTML('beforeend',`<option>${y}</option>`);
+    yt.insertAdjacentHTML('beforeend',`<option>${y}</option>`);});
+  const defFrom=years[Math.max(0,years.length-30)];
+  yf.value=defFrom;yt.value=years[years.length-1];
+  state.from=+yf.value;state.to=+yt.value;
+  yf.onchange=()=>{state.from=+yf.value;draw();};
+  yt.onchange=()=>{state.to=+yt.value;draw();};
+  $("#serToggle").querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    $("#serToggle").querySelectorAll('button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');state.series=b.dataset.s;draw();});
+  $("#hideFlagged").onchange=e=>{state.hideFlagged=e.target.checked;draw();};
+  $("#controls").style.display="flex";$("#panelFlow").style.display="block";
+  buildLegend();draw();
+}
+function buildLegend(){
+  const present=[...new Set(FLOW.map(d=>d.q))];
+  const order=['','$','A','E','M','Q'].filter(f=>present.includes(f));
+  $("#flagLegend").innerHTML=order.map(f=>
+    `<span><i class="swatch" style="background:${FLAGS[f].c}"></i>${FLAGS[f].name}${f?` (${f})`:''}</span>`).join('');
+}
+function draw(){
+  const isFlow=state.series==='flow';
+  $("#flowTitle").textContent=isFlow?"Monthly maximum flow":"Monthly maximum level";
+  $("#flowCap").textContent=isFlow?"Cumec (m3/s). Points coloured by DWS quality code."
+                                  :"Metres. Points coloured by DWS quality code.";
+  let rows=FLOW.filter(d=>d.y>=state.from&&d.y<=state.to);
+  const key=isFlow?'flow':'level';
+  if(state.hideFlagged)rows=rows.map(d=>FLAGGED.has(d.q)?{...d,[key]:null}:d);
+  const W=Math.max(760,rows.length*2.2),H=340,m={l:52,r:16,t:14,b:34},iw=W-m.l-m.r,ih=H-m.t-m.b;
+  const vals=rows.map(d=>d[key]).filter(v=>v!=null);
+  if(!vals.length){$("#flowChart").innerHTML='<div class="empty-note">No '+state.series+' data in this range.</div>';return;}
+  const vmax=Math.max(...vals)*1.08,vmin=0;
+  const t0=rows[0].ym,t1=rows[rows.length-1].ym;
+  const X=ym=>m.l+(t1===t0?0:(ym-t0)/(t1-t0)*iw),Y=v=>m.t+ih-(v-vmin)/(vmax-vmin)*ih;
+  const gl=[];for(let i=0;i<=4;i++)gl.push(vmin+(vmax-vmin)*i/4);
+  const yrs=[...new Set(rows.map(d=>d.y))],step=Math.ceil(yrs.length/10);
+  const yrTicks=yrs.filter((y,i)=>i%step===0);
+  let path="",pen=false;
+  rows.forEach(d=>{const v=d[key];if(v==null){pen=false;return;}
+    path+=(pen?"L":"M")+X(d.ym).toFixed(1)+" "+Y(v).toFixed(1)+" ";pen=true;});
+  let svg=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img">`;
+  gl.forEach(v=>{svg+=`<line class="gridline" x1="${m.l}" x2="${W-m.r}" y1="${Y(v)}" y2="${Y(v)}"/>`
+    +`<text class="axis" x="${m.l-8}" y="${Y(v)+3}" text-anchor="end">${v.toFixed(2)}</text>`;});
+  yrTicks.forEach(y=>{const d=rows.find(r=>r.y===y);if(!d)return;
+    svg+=`<text class="axis" x="${X(d.ym)}" y="${H-14}" text-anchor="middle">${y}</text>`;});
+  svg+=`<path class="flowline" d="${path}"/>`;
+  rows.forEach(d=>{const v=d[key];if(v==null)return;
+    svg+=`<circle class="dot" cx="${X(d.ym).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="2.6" `
+      +`fill="${FLAGS[d.q].c}" data-t="${d.y}-${String(d.m).padStart(2,'0')} \u00b7 ${isFlow?v.toFixed(3)+' m3/s':v.toFixed(3)+' m'} \u00b7 ${FLAGS[d.q].name}"/>`;});
+  svg+=`</svg>`;
+  const c=$("#flowChart");c.innerHTML=svg;
+  c.querySelectorAll('.dot').forEach(el=>{
+    el.addEventListener('mousemove',e=>showTip(el.getAttribute('data-t'),e.clientX,e.clientY));
+    el.addEventListener('mouseleave',hideTip);});
+}
+function drawVol(){
+  const c=$("#volChart");
+  if(!VOL.length){c.innerHTML='<div class="empty-note">Upload a monthly volume CSV to populate this panel.</div>';return;}
+  const W=Math.max(760,VOL.length*10),H=320,m={l:66,r:16,t:14,b:40},iw=W-m.l-m.r,ih=H-m.t-m.b;
+  const vmax=Math.max(...VOL.map(d=>d.vol))*1.08,bw=Math.max(2,iw/VOL.length*0.7);
+  const X=i=>m.l+i/Math.max(1,VOL.length-1)*(iw-bw)+bw/2,Y=v=>m.t+ih-v/vmax*ih;
+  const fmt=v=>v>=1e6?(v/1e6).toFixed(2)+"M":v>=1e3?(v/1e3).toFixed(0)+"k":v.toFixed(0);
+  let svg=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img">`;
+  for(let i=0;i<=4;i++){const v=vmax*i/4;
+    svg+=`<line class="gridline" x1="${m.l}" x2="${W-m.r}" y1="${Y(v)}" y2="${Y(v)}"/>`
+      +`<text class="axis" x="${m.l-8}" y="${Y(v)+3}" text-anchor="end">${fmt(v)}</text>`;}
+  const step=Math.ceil(VOL.length/12);
+  VOL.forEach((d,i)=>{const x=X(i)-bw/2,y=Y(d.vol);
+    svg+=`<rect class="volbar" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${(m.t+ih-y).toFixed(1)}" `
+      +`data-t="${d.y}-${String(d.m).padStart(2,'0')} \u00b7 ${d.vol.toLocaleString()} m3"/>`;
+    if(i%step===0)svg+=`<text class="axis" x="${X(i)}" y="${H-14}" text-anchor="middle">${d.y}-${String(d.m).padStart(2,'0')}</text>`;});
+  svg+=`<text class="axis" transform="rotate(-90)" x="${-(m.t+ih/2)}" y="14" text-anchor="middle">m3</text></svg>`;
+  c.innerHTML=svg;
+  c.querySelectorAll('.volbar').forEach(el=>{
+    el.addEventListener('mousemove',e=>showTip(el.getAttribute('data-t'),e.clientX,e.clientY));
+    el.addEventListener('mouseleave',hideTip);});
+}
+$("#tmplLink").addEventListener('click',()=>{
+  const now=new Date(),rows=["Year,Month,Volume_m3"];
+  for(let i=11;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+    rows.push(`${d.getFullYear()},${d.getMonth()+1},`);}
+  const blob=new Blob([rows.join("\n")],{type:"text/csv"});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download="monthly_volume_template.csv";a.click();
+});
+</script>
+</body>
+</html>

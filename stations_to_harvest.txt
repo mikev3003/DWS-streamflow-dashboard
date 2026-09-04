@@ -1,0 +1,4 @@
+# DWS stations to harvest monthly peak-flow CSVs for.
+# One station code per line. Lines starting with # are ignored.
+# Start small; add codes as you confirm they have a peaks file.
+A2H010
